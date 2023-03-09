@@ -1,5 +1,13 @@
 use clap::{arg, command, Parser};
-use std::{fmt::Display, str::FromStr};
+use std::io;
+use std::process::{Command, Output};
+use std::{
+    fmt::Display,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use tera::{Context, Tera};
 
 const DOCKERFILE: &str = "Dockerfile";
@@ -9,10 +17,15 @@ const TEMPLATE_DIR: &str = "templates/*";
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, help = "Linux distribution")]
     distro: String,
 
-    #[arg(short, long, default_value = "latest")]
+    #[arg(
+        short,
+        long,
+        default_value = "latest",
+        help = "Distribution release version"
+    )]
     release: String,
 }
 
@@ -152,6 +165,7 @@ impl std::error::Error for DecodingError {}
 enum Error {
     Decoding(DecodingError),
     Templating(tera::Error),
+    IO(std::io::Error),
 }
 
 impl From<DecodingError> for Error {
@@ -163,6 +177,12 @@ impl From<DecodingError> for Error {
 impl From<tera::Error> for Error {
     fn from(err: tera::Error) -> Self {
         Self::Templating(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::IO(err)
     }
 }
 
@@ -190,6 +210,80 @@ impl FromStr for Distro {
     }
 }
 
+trait ImageBuilder {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error>;
+}
+
+struct Docker {
+    bin: String,
+}
+
+impl Docker {
+    fn new() -> Self {
+        Self {
+            bin: "docker".to_string(),
+        }
+    }
+}
+
+impl Default for Docker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ImageBuilder for Docker {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error> {
+        let s = image.dir().join(Path::new("Dockerfile"));
+        let child = Command::new(&self.bin)
+            .args(vec![
+                "build",
+                "-f",
+                s.to_str().unwrap(),
+                "-t",
+                &image.name(),
+                ".",
+            ])
+            .spawn()?;
+        let output = child.wait_with_output()?;
+        Ok(output)
+    }
+}
+
+struct Podman {
+    bin: String,
+}
+
+impl Podman {
+    fn new() -> Self {
+        Self {
+            bin: "podman".to_string(),
+        }
+    }
+}
+
+impl Default for Podman {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ImageBuilder for Podman {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error> {
+        let output = Command::new(&self.bin)
+            .args(vec![
+                "build",
+                "-t",
+                &image.name(),
+                "-",
+                "<",
+                &image.dockerfile,
+            ])
+            .output()?;
+        Ok(output)
+    }
+}
+
 fn run_layer<P>(package_manager: P) -> String
 where
     P: Installer + Updater + Upgrader,
@@ -201,18 +295,59 @@ where
     format!("{} && {} && {}", update, upgrade, install)
 }
 
+#[derive(Debug)]
+struct ImageMetadata<'a> {
+    distro: &'a str,
+    release: &'a str,
+    dockerfile: String,
+}
+
+impl<'a> ImageMetadata<'a> {
+    fn try_new(distro: &'a str, release: &'a str) -> Result<Self, Error> {
+        let dist = Distro::from_str(distro)?;
+        let tera = Tera::new(TEMPLATE_DIR)?;
+
+        let mut context = Context::new();
+        context.insert("name", distro);
+        context.insert("version", release);
+        context.insert("run_layer", &dist.run_layer());
+
+        let dockerfile = tera.render(DOCKERFILE, &context)?;
+        Ok(Self {
+            distro,
+            release,
+            dockerfile,
+        })
+    }
+
+    fn dir(&self) -> PathBuf {
+        PathBuf::from(format!("images/{}/{}", self.distro, self.release))
+    }
+
+    fn name(&self) -> String {
+        format!("{}:{}", self.distro, self.release)
+    }
+}
+
+fn genenerate_image_path(image: &ImageMetadata<'_>) -> Result<(), Error> {
+    let path = image.dir();
+    fs::create_dir_all(&path)?;
+    let mut file = fs::File::create(path.join(Path::new("Dockerfile")))?;
+    file.write_all(image.dockerfile.as_bytes())?;
+    Ok(())
+}
+
+fn build_image(builder: impl ImageBuilder, image: &ImageMetadata<'_>) -> Result<(), Error> {
+    let output = builder.build_image(image)?;
+    io::stdout().write_all(&output.stdout)?;
+    io::stderr().write_all(&output.stderr)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = Args::parse();
-    let distro = Distro::from_str(&args.distro)?;
-
-    let tera = Tera::new(TEMPLATE_DIR)?;
-
-    let mut context = Context::new();
-    context.insert("name", &args.distro);
-    context.insert("version", &args.release);
-    context.insert("run_layer", &distro.run_layer());
-
-    let rendered = tera.render(DOCKERFILE, &context)?;
-    println!("{}", rendered);
-    Ok(())
+    let image = ImageMetadata::try_new(&args.distro, &args.release)?;
+    genenerate_image_path(&image)?;
+    let oci_image_builder = Docker::default();
+    build_image(oci_image_builder, &image)
 }
