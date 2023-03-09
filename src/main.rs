@@ -1,4 +1,6 @@
 use clap::{arg, command, Parser};
+use std::io;
+use std::process::{Command, Output};
 use std::{
     fmt::Display,
     fs,
@@ -208,6 +210,80 @@ impl FromStr for Distro {
     }
 }
 
+trait ImageBuilder {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error>;
+}
+
+struct Docker {
+    bin: String,
+}
+
+impl Docker {
+    fn new() -> Self {
+        Self {
+            bin: "docker".to_string(),
+        }
+    }
+}
+
+impl Default for Docker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ImageBuilder for Docker {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error> {
+        let s = image.dir().join(Path::new("Dockerfile"));
+        let child = Command::new(&self.bin)
+            .args(vec![
+                "build",
+                "-f",
+                s.to_str().unwrap(),
+                "-t",
+                &image.name(),
+                ".",
+            ])
+            .spawn()?;
+        let output = child.wait_with_output()?;
+        Ok(output)
+    }
+}
+
+struct Podman {
+    bin: String,
+}
+
+impl Podman {
+    fn new() -> Self {
+        Self {
+            bin: "podman".to_string(),
+        }
+    }
+}
+
+impl Default for Podman {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ImageBuilder for Podman {
+    fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error> {
+        let output = Command::new(&self.bin)
+            .args(vec![
+                "build",
+                "-t",
+                &image.name(),
+                "-",
+                "<",
+                &image.dockerfile,
+            ])
+            .output()?;
+        Ok(output)
+    }
+}
+
 fn run_layer<P>(package_manager: P) -> String
 where
     P: Installer + Updater + Upgrader,
@@ -245,10 +321,11 @@ impl<'a> ImageMetadata<'a> {
     }
 
     fn dir(&self) -> PathBuf {
-        PathBuf::from(format!(
-            "images/{}/{}/Dockerfile",
-            self.distro, self.release
-        ))
+        PathBuf::from(format!("images/{}/{}", self.distro, self.release))
+    }
+
+    fn name(&self) -> String {
+        format!("{}:{}", self.distro, self.release)
     }
 }
 
@@ -260,9 +337,17 @@ fn genenerate_image_path(image: &ImageMetadata<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+fn build_image(builder: impl ImageBuilder, image: &ImageMetadata<'_>) -> Result<(), Error> {
+    let output = builder.build_image(image)?;
+    io::stdout().write_all(&output.stdout)?;
+    io::stderr().write_all(&output.stderr)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = Args::parse();
     let image = ImageMetadata::try_new(&args.distro, &args.release)?;
     genenerate_image_path(&image)?;
-    Ok(())
+    let oci_image_builder = Docker::default();
+    build_image(oci_image_builder, &image)
 }
