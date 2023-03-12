@@ -6,6 +6,7 @@ edition = "2021"
 license = "MIT"
 keywords = ["docker", "podman", "toolbox", "oci", "container"]
 description = "Toolbox image builder (tigen) is a simple utility to create oci images to for creating [toolbox](https://github.com/containers/toolbox) sessions."
+repository = "https://github.com/prx0/tigen.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
