@@ -17,14 +17,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - name: Install latest stable
         uses: actions-rs/toolchain@v1
         with:
             toolchain: stable
             override: true
             components: rustfmt 
-          
+
       - name: Check code format
         run: cargo fmt --all -- --check
 
@@ -33,14 +33,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - name: Install latest stable
         uses: actions-rs/toolchain@v1
         with:
             toolchain: stable
             override: true
             components: rustfmt 
-          
+
       - name: Check code format
         run: cargo fmt --all -- --check
 
@@ -49,14 +49,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - name: Install latest stable
         uses: actions-rs/toolchain@v1
         with:
             toolchain: stable
             override: true
             components: rustfmt, clippy
-        
+
       - name: Build debug
         run: cargo build --verbose
         
@@ -80,17 +80,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - name: Install latest stable
         uses: actions-rs/toolchain@v1
         with:
             toolchain: stable
             override: true
             components: rustfmt, clippy
-        
+
       - name: Build debug
         run: cargo test --verbose
-        
+
       - name: Build release
         run: cargo test --release --verbose
 
