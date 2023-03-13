@@ -13,7 +13,6 @@ repository = "https://github.com/prx0/tigen.git"
 [dependencies]
 clap = { version = "4.1.8", features = ['derive'] }
 tera = "1.17.1"
-nom = "7.1.3"
 
 [[bin]]
 name = "tigen"
