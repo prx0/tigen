@@ -1,4 +1,12 @@
 pub use error::*;
+use nom::bytes::streaming::take_till;
+use nom::character::is_alphanumeric;
+use nom::{IResult, InputTakeAtPosition, AsChar};
+use nom::error::{VerboseError, ErrorKind};
+use nom::multi::many0;
+use nom::sequence::tuple;
+use nom::combinator::opt;
+use nom::character::complete::char;
 use package_manager::{Apt, Dnf, PackageManager, Pacman, Zypper};
 use std::io;
 use std::process::{Command, Output};
@@ -184,19 +192,16 @@ pub struct ImageName<'a> {
     tag: &'a str,
 }
 
+fn word(input: &str) -> IResult<&str, &str> {
+    let t: char = '-';
+    let s: char = '_';
+    take_till(|c: char| is_alphanumeric(c as u8) || c == t || c == s )(input)
+}
+
 impl<'a> ImageName<'a> {
     pub fn parse(s: &'a str) -> Result<Self, Error> {
-        let s: Vec<&str> = s.trim().split(':').into_iter().collect();
-        let name = match s.first() {
-            Some(image) => image.to_owned(),
-            None => {
-                return Err(Error::Decoding(DecodingError(
-                    "Unable to decode image name".to_string(),
-                )))
-            }
-        };
-        let tag = s.get(1).map(|s| s.to_owned()).unwrap_or("latest");
-        Ok(Self { name, tag })
+        let (name, (_, tag)) = tuple((word, opt(tuple((char(':'), word)))))(s)?;
+        Ok(Self { name, tag: tag.map(|(_, t)| t).unwrap_or("latest") })
     }
 }
 
