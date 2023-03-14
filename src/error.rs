@@ -16,6 +16,7 @@ pub enum Error {
     Decoding(DecodingError),
     Templating(tera::Error),
     IO(std::io::Error),
+    Nom(String),
 }
 
 impl From<DecodingError> for Error {

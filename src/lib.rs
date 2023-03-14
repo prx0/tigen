@@ -1,12 +1,10 @@
 pub use error::*;
-use nom::bytes::streaming::take_till;
-use nom::character::is_alphanumeric;
-use nom::{IResult, InputTakeAtPosition, AsChar};
-use nom::error::{VerboseError, ErrorKind};
-use nom::multi::many0;
-use nom::sequence::tuple;
-use nom::combinator::opt;
+use nom::bytes::complete::take_while1;
 use nom::character::complete::char;
+use nom::character::is_alphanumeric;
+use nom::combinator::opt;
+use nom::sequence::tuple;
+use nom::IResult;
 use package_manager::{Apt, Dnf, PackageManager, Pacman, Zypper};
 use std::io;
 use std::process::{Command, Output};
@@ -193,20 +191,62 @@ pub struct ImageName<'a> {
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
-    let t: char = '-';
-    let s: char = '_';
-    take_till(|c: char| is_alphanumeric(c as u8) || c == t || c == s )(input)
+    take_while1(|c: char| is_alphanumeric(c as u8) || c == '-' || c == '_' || c == '.')(input)
 }
 
 impl<'a> ImageName<'a> {
     pub fn parse(s: &'a str) -> Result<Self, Error> {
-        let (name, (_, tag)) = tuple((word, opt(tuple((char(':'), word)))))(s)?;
-        Ok(Self { name, tag: tag.map(|(_, t)| t).unwrap_or("latest") })
+        let (tag, name) = word(s).map_err(|e| Error::Nom(e.to_string()))?;
+
+        let (_, tag) = opt(tuple((char(':'), word)))(tag).map_err(|e| Error::Nom(e.to_string()))?;
+        Ok(Self {
+            name,
+            tag: tag.map(|(_, t)| t).unwrap_or("latest"),
+        })
     }
 }
 
 impl<'a> ToString for ImageName<'a> {
     fn to_string(&self) -> String {
         format!("{}:{}", self.name, self.tag)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::vec;
+
+    use super::*;
+
+    #[test]
+    fn parse_image_name() {
+        struct Test<'a> {
+            args: &'a str,
+            expected: &'a str,
+        }
+
+        let images = vec![
+            Test {
+                args: "ubuntu:20.04",
+                expected: "ubuntu:20.04",
+            },
+            Test {
+                args: "archlinux",
+                expected: "archlinux:latest",
+            },
+            Test {
+                args: "fedora:37",
+                expected: "fedora:37",
+            },
+            Test {
+                args: "ubuntu:lunar-20230301",
+                expected: "ubuntu:lunar-20230301",
+            },
+        ];
+
+        for image in images {
+            let parsed = ImageName::parse(image.args).expect("A valid image name");
+            assert_eq!(image.expected, &parsed.to_string())
+        }
     }
 }

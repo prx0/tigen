@@ -11,5 +11,11 @@ cargo install tigen
 ```
 
 ```sh
-tigen -d ubuntu -r 20:04
+tigen --image ubuntu:20.04
+```
+
+tigen use docker image name to build oci images. After that, you'll be able to jump into ubuntu lts 20.02 using toolbox:
+
+```sh
+toolbox enter -d ubuntu -r 20.04
 ```
