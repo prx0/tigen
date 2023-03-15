@@ -58,6 +58,38 @@ impl FromStr for Distro {
     }
 }
 
+pub struct Toolbox {
+    bin: String,
+}
+
+impl Toolbox {
+    pub fn new() -> Self {
+        Self {
+            bin: "toolbox".to_string(),
+        }
+    }
+
+    pub fn create(&self, image: &ImageName<'_>) -> Result<Output, Error> {
+        let child = Command::new(&self.bin)
+            .args(vec!["create", "-i", &image.to_string()])
+            .spawn()?;
+        let output = child.wait_with_output()?;
+        Ok(output)
+    }
+
+    pub fn enter(&self) -> Result<Output, Error> {
+        let child = Command::new(&self.bin).args(vec!["enter"]).spawn()?;
+        let output = child.wait_with_output()?;
+        Ok(output)
+    }
+}
+
+impl Default for Toolbox {
+    fn default() -> Self {
+        Toolbox::new()
+    }
+}
+
 pub trait ImageBuilder {
     fn build_image(&self, image: &ImageMetadata<'_>) -> Result<Output, Error>;
 }
